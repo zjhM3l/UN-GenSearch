@@ -37,12 +37,14 @@ session = requests.Session()
 session.mount("https://", adapter)
 
 # ----------------- 获取所有表决记录 -----------------
-def get_voting_records(max_pages=1):
+def get_voting_records(start_page=1, end_page=1):
     """
-    爬取表决记录首页，获取每个会议详情页的 URL
+    爬取表决记录首页，获取每个会议详情页的 URL。
+    :param start_page: 起始页数（从 1 开始）
+    :param end_page: 终止页数（包含该页）
     """
     voting_records = []
-    for page_number in range(max_pages):
+    for page_number in range(start_page - 1, end_page):  # 调整索引，使得从用户指定的 start_page 开始
         page_url = VOTING_PAGE_URL_TEMPLATE.format(page_number * 50 + 1)
         print(f"📥 获取页面: {page_url}")
         response = session.get(page_url, headers=HEADERS, timeout=15)
@@ -144,8 +146,11 @@ def main():
     """
     print("📌 开始爬取联合国安理会表决记录")
 
-    # 只爬取前 1 页（50 条记录）
-    voting_records = get_voting_records(max_pages=1)
+    # **修改这里：可以选择从第几页到第几页**
+    start_page = 1
+    end_page = 10
+
+    voting_records = get_voting_records(start_page, end_page)
 
     for voting_url in tqdm(voting_records, desc="📊 正在处理表决记录"):
         print(f"\n🔍 处理表决记录: {voting_url}")
