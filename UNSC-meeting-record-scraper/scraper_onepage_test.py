@@ -10,11 +10,11 @@ from tqdm import tqdm
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# 修复Windows终端编码问题
+# Fix Windows terminal encoding issues
 if sys.stdout.encoding != 'UTF-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-# ----------------- 配置参数 -----------------
+# ----------------- Configuration -----------------
 BASE_URL = "https://digitallibrary.un.org"
 VOTING_PAGE_URL_TEMPLATE = "https://digitallibrary.un.org/search?cc=Voting+Data&c=Voting+Data&ln=en&fct__2=Security+Council&jrec={}&rg=50"
 DOWNLOAD_DIR = "./UN_Voting_PDFs"
@@ -27,12 +27,12 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 }
 
-# ----------------- 调试配置 -----------------
-DEBUG_MODE = True  # 开启调试模式
+# ----------------- Debugging Configuration -----------------
+DEBUG_MODE = True  # Enable debugging mode
 DEBUG_DIR = "./debug_html"
 os.makedirs(DEBUG_DIR, exist_ok=True)
 
-# ----------------- 重试配置 -----------------
+# ----------------- Retry Configuration -----------------
 retry_strategy = Retry(
     total=3,
     backoff_factor=1,
@@ -43,87 +43,105 @@ session = requests.Session()
 session.mount("https://", adapter)
 
 def save_debug_html(content, filename):
-    """保存调试用HTML"""
+    """
+    Save the HTML content for debugging purposes.
+    :param content: HTML content to save
+    :param filename: Name of the debug file
+    """
     path = os.path.join(DEBUG_DIR, filename)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    print(f"已保存调试文件: {path}")
+    print(f"Debug file saved: {path}")
 
 def get_safe_soup(url):
+    """
+    Fetch and parse the HTML content of a given URL.
+    :param url: URL to fetch
+    :return: BeautifulSoup object or None if an error occurs
+    """
     try:
         response = session.get(url, headers=HEADERS, timeout=15)
         response.raise_for_status()
         
-        # 保存原始HTML用于调试
+        # Save raw HTML for debugging
         if DEBUG_MODE:
             save_debug_html(response.text, f"raw_{url.split('/')[-1]}.html")
             
         return BeautifulSoup(response.text, "html.parser")
     except Exception as e:
-        print(f"请求失败: {url} - {str(e)}")
+        print(f"Request failed: {url} - {str(e)}")
         return None
 
 def get_meeting_record(voting_url):
+    """
+    Extract the meeting record link from the voting page.
+    :param voting_url: URL of the voting page
+    :return: URL of the meeting record or None if not found
+    """
     soup = get_safe_soup(voting_url)
     if not soup:
         return None
 
-    print("\n=== 新版定位逻辑 ===")
+    print("\n=== Updated Locator Logic ===")
     
-    # 调试1：打印页面标题
+    # Debugging: Print page title
     title_tag = soup.find("title")
-    print(f"页面标题: {title_tag.text if title_tag else '无标题'}")
+    print(f"Page Title: {title_tag.text if title_tag else 'No Title'}")
 
-    # 调试2：列出所有自定义组件
+    # Debugging: List all custom components
     custom_components = soup.find_all(lambda tag: tag.name.startswith("tindui-"))
-    print(f"\n找到 {len(custom_components)} 个自定义组件:")
+    print(f"\nFound {len(custom_components)} custom components:")
     for comp in custom_components:
-        print(f"组件名: {comp.name}")
-        print(f"属性: {comp.attrs}")
-        print("-"*50)
+        print(f"Component Name: {comp.name}")
+        print(f"Attributes: {comp.attrs}")
+        print("-" * 50)
 
-    # 调试3：打印整个HTML结构的前1000字符
-    print("\nHTML结构预览:")
+    # Debugging: Preview HTML structure
+    print("\nHTML Structure Preview:")
     print(soup.prettify()[:1000])
     
-    # 定位所有下载组件
+    # Locate all download components
     download_components = soup.find_all("tindui-app-file-download-link")
-    print(f"\n找到 {len(download_components)} 个下载组件")
+    print(f"\nFound {len(download_components)} download components")
 
-    # 如果找不到组件，尝试备用方案
+    # If no components are found, use an alternative method
     if not download_components:
-        print("\n!!! 备用方案：尝试在原始HTML中搜索链接 !!!")
+        print("\n!!! Alternative Method: Searching raw HTML for links !!!")
         all_links = soup.find_all("a", href=True)
         en_pdf_links = [link["href"] for link in all_links if "-EN.pdf" in link["href"]]
-        print(f"找到 {len(en_pdf_links)} 个疑似英文PDF链接")
+        print(f"Found {len(en_pdf_links)} suspected English PDF links")
         if en_pdf_links:
             full_url = BASE_URL + en_pdf_links[0]
-            print(f"备用链接: {full_url}")
+            print(f"Alternative link: {full_url}")
             return full_url
 
-    # 寻找包含英文的PDF链接
+    # Find English PDF link
     for component in download_components:
         url = component.get("url", "")
         if "-EN.pdf" in url:
             full_url = BASE_URL + url
-            print(f"找到英文PDF链接: {full_url}")
+            print(f"Found English PDF link: {full_url}")
             return full_url
 
-    print("!!! 未找到英文PDF组件 !!!")
+    print("!!! No English PDF component found !!!")
     return None
 
-# 需要新增的下载函数
 def download_file(url, filename):
+    """
+    Download a file and save it locally.
+    :param url: URL of the file to download
+    :param filename: Name of the file to save
+    :return: True if successful, False otherwise
+    """
     try:
         filepath = os.path.join(DOWNLOAD_DIR, filename)
         if os.path.exists(filepath):
-            print(f"文件已存在: {filename}")
+            print(f"File already exists: {filename}")
             return True
 
-        # 添加必要的请求头
         headers = {
             **HEADERS,
-            "Referer": url  # 关键：需要携带来源头
+            "Referer": url  # Essential: Include the referer header
         }
 
         with session.get(url, headers=headers, stream=True, timeout=30) as r:
@@ -141,34 +159,37 @@ def download_file(url, filename):
                         pbar.update(len(chunk))
         return True
     except Exception as e:
-        print(f"下载失败: {str(e)}")
+        print(f"Download failed: {str(e)}")
         return False
 
 def main():
+    """
+    Main function: Process voting records, fetch meeting records, and download PDFs.
+    """
     TEST_MODE = True
     records = ["https://digitallibrary.un.org/record/4031209"]
     
-    print(f"待处理记录数: {len(records)}")
+    print(f"Total records to process: {len(records)}")
 
     for idx, voting_url in enumerate(records):
-        print(f"\n=== 处理第 {idx+1}/{len(records)} 条记录 ===")
-        print(f"表决页面: {voting_url}")
+        print(f"\n=== Processing record {idx+1}/{len(records)} ===")
+        print(f"Voting Page: {voting_url}")
 
-        # 直接获取PDF链接
+        # Fetch PDF link
         pdf_url = get_meeting_record(voting_url)
-        print(f"PDF链接: {pdf_url}" if pdf_url else "未找到PDF链接")
+        print(f"PDF Link: {pdf_url}" if pdf_url else "No PDF link found")
 
         if not pdf_url:
             continue
 
-        # 从URL提取文件名
+        # Extract filename from URL
         filename = pdf_url.split("/")[-1]
         
-        print(f"开始下载: {filename}")
+        print(f"Starting download: {filename}")
         if download_file(pdf_url, filename):
-            print(f"下载成功: {filename}")
+            print(f"Download successful: {filename}")
         else:
-            print("下载失败")
+            print("Download failed")
 
 if __name__ == "__main__":
     main()

@@ -10,10 +10,10 @@ from urllib3.util.retry import Retry
 import re
 import sys
 
-# 解决 Windows 终端编码问题
+# Fix Windows terminal encoding issue
 sys.stdout.reconfigure(encoding='utf-8')
 
-# ----------------- 配置参数 -----------------
+# ----------------- Configuration -----------------
 BASE_URL = "https://digitallibrary.un.org"
 VOTING_PAGE_URL_TEMPLATE = "https://digitallibrary.un.org/search?cc=Voting+Data&c=Voting+Data&ln=en&fct__2=Security+Council&jrec={}&rg=50"
 DOWNLOAD_DIR = "./UN_Voting_PDFs"
@@ -26,7 +26,7 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 }
 
-# ----------------- 重试配置 -----------------
+# ----------------- Retry Configuration -----------------
 retry_strategy = Retry(
     total=3,
     backoff_factor=1,
@@ -36,25 +36,26 @@ adapter = HTTPAdapter(max_retries=retry_strategy)
 session = requests.Session()
 session.mount("https://", adapter)
 
-# ----------------- 获取所有表决记录 -----------------
 def get_voting_records(start_page=1, end_page=1):
     """
-    爬取表决记录首页，获取每个会议详情页的 URL。
-    :param start_page: 起始页数（从 1 开始）
-    :param end_page: 终止页数（包含该页）
+    Scrape the voting records homepage and retrieve each meeting's detail page URL.
+    
+    :param start_page: Starting page number (1-based index).
+    :param end_page: Ending page number (inclusive).
+    :return: A list of URLs for individual voting records.
     """
     voting_records = []
-    for page_number in range(start_page - 1, end_page):  # 调整索引，使得从用户指定的 start_page 开始
+    for page_number in range(start_page - 1, end_page):  # Adjust index to match user input
         page_url = VOTING_PAGE_URL_TEMPLATE.format(page_number * 50 + 1)
-        print(f"📥 获取页面: {page_url}")
+        print(f"📥 Fetching page: {page_url}")
         response = session.get(page_url, headers=HEADERS, timeout=15)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # 解析会议详情页链接
+        # Extract meeting detail page links
         record_links = soup.find_all("div", class_="moreinfo")
         if not record_links:
-            print("⚠️ 没有找到表决记录，可能 HTML 结构发生变化！")
-            break  # 没有数据，终止循环
+            print("⚠️ No voting records found. The HTML structure may have changed!")
+            break  # Stop if no data is found
 
         for link in record_links:
             detailed_link_tag = link.find("a", class_="moreinfo", href=True)
@@ -62,20 +63,22 @@ def get_voting_records(start_page=1, end_page=1):
                 record_url = BASE_URL + detailed_link_tag["href"]
                 voting_records.append(record_url)
 
-        print(f"✅ 获取到 {len(record_links)} 条表决记录")
-        time.sleep(random.uniform(1, 3))  # 避免请求过快
+        print(f"✅ Retrieved {len(record_links)} voting records")
+        time.sleep(random.uniform(1, 3))  # Avoid excessive requests
 
     return voting_records
 
-# ----------------- 解析会议记录链接 -----------------
 def get_meeting_record(voting_url):
     """
-    解析表决记录页面，找到会议记录的详情页 URL
+    Parse the voting record page to find the meeting record details page URL.
+    
+    :param voting_url: The URL of a specific voting record page.
+    :return: URL of the meeting record page or None if not found.
     """
     response = session.get(voting_url, headers=HEADERS, timeout=15)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # 查找所有 metadata-row
+    # Look for metadata-row containing "Meeting record"
     for row in soup.find_all("div", class_="metadata-row"):
         title_tag = row.find("span", class_="title")
         if title_tag and "Meeting record" in title_tag.text:
@@ -85,40 +88,44 @@ def get_meeting_record(voting_url):
                 if meeting_record_link:
                     return meeting_record_link["href"]
 
-    # 如果找不到，保存 HTML 供调试
+    # Save HTML for debugging if no meeting record is found
     clean_filename = re.sub(r"[^a-zA-Z0-9_-]", "_", voting_url.split("/")[-1]) + ".html"
     debug_filename = f"debug_meeting_record_{clean_filename}"
 
     with open(debug_filename, "w", encoding="utf-8") as f:
         f.write(soup.prettify())
-    print(f"⚠️ 未找到会议记录页面，已保存 HTML 供调试: {debug_filename}")
+    print(f"⚠️ Meeting record page not found. Debugging HTML saved: {debug_filename}")
 
     return None
 
-# ----------------- 解析会议记录 PDF -----------------
 def get_pdf_link(meeting_record_url):
     """
-    解析会议记录页面，找到英文版 PDF 的下载链接
+    Parse the meeting record page to find the English PDF download link.
+    
+    :param meeting_record_url: URL of the meeting record page.
+    :return: Direct link to the English PDF file or None if not found.
     """
     response = session.get(meeting_record_url, headers=HEADERS, timeout=15)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # 找到所有下载链接，筛选 English 版
     for link in soup.find_all("a", href=True):
-        if "-EN.pdf" in link["href"]:  # 只抓取英文版 PDF
+        if "-EN.pdf" in link["href"]:
             return BASE_URL + link["href"]
 
     return None
 
-# ----------------- 下载 PDF -----------------
 def download_pdf(pdf_url, filename):
     """
-    下载 PDF 文件，并存储到本地
+    Download the PDF file and save it locally.
+    
+    :param pdf_url: The direct URL to the PDF file.
+    :param filename: The local filename to save the file as.
+    :return: True if successful, False otherwise.
     """
     try:
         filepath = os.path.join(DOWNLOAD_DIR, filename)
         if os.path.exists(filepath):
-            print(f"🟢 文件已存在: {filename}")
+            print(f"🟢 File already exists: {filename}")
             return True
 
         with session.get(pdf_url, headers=HEADERS, stream=True, timeout=30) as r:
@@ -136,50 +143,46 @@ def download_pdf(pdf_url, filename):
                         pbar.update(len(chunk))
         return True
     except Exception as e:
-        print(f"❌ 下载失败: {str(e)}")
+        print(f"❌ Download failed: {str(e)}")
         return False
 
-# ----------------- 组合所有步骤 -----------------
 def main():
     """
-    主流程：获取表决记录 -> 进入会议记录 -> 下载 PDF
+    Main process: Retrieve voting records -> Access meeting records -> Download PDFs.
     """
-    print("📌 开始爬取联合国安理会表决记录")
+    print("📌 Starting UN Security Council voting record scraper")
 
-    # **修改这里：可以选择从第几页到第几页**
+    # !!User-defined page range!!
     start_page = 1
     end_page = 10
 
     voting_records = get_voting_records(start_page, end_page)
 
-    for voting_url in tqdm(voting_records, desc="📊 正在处理表决记录"):
-        print(f"\n🔍 处理表决记录: {voting_url}")
+    for voting_url in tqdm(voting_records, desc="📊 Processing voting records"):
+        print(f"\n🔍 Processing voting record: {voting_url}")
 
-        # 获取会议记录页面 URL
         meeting_record_url = get_meeting_record(voting_url)
         if not meeting_record_url:
-            print(f"⚠️ 未找到会议记录页面，跳过 {voting_url}")
+            print(f"⚠️ Meeting record page not found. Skipping {voting_url}")
             continue
 
-        print(f"📑 会议记录页面: {meeting_record_url}")
+        print(f"📑 Meeting record page: {meeting_record_url}")
 
-        # 获取 PDF 下载链接
         pdf_url = get_pdf_link(meeting_record_url)
         if not pdf_url:
-            print(f"⚠️ 未找到英文版 PDF，跳过 {meeting_record_url}")
+            print(f"⚠️ English PDF not found. Skipping {meeting_record_url}")
             continue
 
-        print(f"📄 PDF 下载链接: {pdf_url}")
+        print(f"📄 PDF Download link: {pdf_url}")
 
-        # 下载 PDF
-        resolution_number = voting_url.split("/")[-1].split("?")[0]  # 解析 URL 获取编号
+        resolution_number = voting_url.split("/")[-1].split("?")[0]
         filename = f"{resolution_number}.pdf"
         if download_pdf(pdf_url, filename):
-            print(f"✅ 下载成功: {filename}")
+            print(f"✅ Successfully downloaded: {filename}")
         else:
-            print("❌ 下载失败")
+            print("❌ Download failed")
 
-        time.sleep(random.uniform(2, 5))  # 避免请求过快
+        time.sleep(random.uniform(2, 5))
 
 if __name__ == "__main__":
     main()
