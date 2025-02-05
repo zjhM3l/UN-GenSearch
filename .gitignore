@@ -2,3 +2,4 @@
 /UN_Voting_PDFs
 /debug_html
 debug_meeting_record_*.html
+*__pycache__
