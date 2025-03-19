@@ -137,3 +137,53 @@ Final Top-k: [doc_12, doc_72, doc_45]
 | **6. 综合排名** | Hybrid Search | `0.6 * BM25 + 0.4 * Cosine Similarity` |
 
 ---
+
+### **第三部分：Text Embedding Model Integration（文本向量化 & 相似度计算）**
+**目标：** 采用预训练嵌入模型将会议记录转换为向量，并用于相似度计算。
+
+#### **步骤**
+1. **选择嵌入模型**
+   - 使用 HuggingFace 开源模型（参考 https://huggingface.co/spaces/mteb/leaderboard）
+   - 例如：
+     - `sentence-transformers/all-MiniLM-L6-v2`（轻量级，适合无 GPU 设备）
+     - `BAAI/bge-large-en`（性能较高，但需要 GPU）
+
+2. **文本向量化**
+   - 加载嵌入模型
+   - 将 `title` + `text` 进行向量化
+   - 存储索引向量
+
+3. **相似度计算**
+   - 输入查询，计算 `cosine similarity`
+   - 返回最相关的 `top-k` 会议记录
+
+#### **工具**
+- `sentence-transformers`（文本嵌入）
+- `numpy`（向量运算）
+- `faiss`（高效 ANN 检索）
+- `json`（格式化返回结果）
+
+---
+
+## **Mock 数据方案**
+### **先用 JSON 测试**
+在 `meetings.csv` 生成之前，你可以用 JSON 进行测试：
+```json
+[
+  {
+    "id": "001",
+    "title": "Security Council Meeting 1001",
+    "text": "The UN Security Council met today to discuss nuclear disarmament...",
+    "date": "2025-01-15",
+    "agenda": "Nuclear Disarmament",
+    "participants": "USA, China, Russia"
+  },
+  {
+    "id": "002",
+    "title": "Security Council Meeting 1002",
+    "text": "The meeting focused on economic sanctions against rogue states...",
+    "date": "2025-01-20",
+    "agenda": "Economic Sanctions",
+    "participants": "UK, France, Germany"
+  }
+]
