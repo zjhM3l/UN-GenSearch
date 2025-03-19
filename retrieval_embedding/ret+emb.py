@@ -12,14 +12,15 @@ from sklearn.preprocessing import normalize
 
 # 下载必要的NLTK资源
 nltk.download('stopwords')
-nltk.download('punkt')
+# nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('wordnet')
 
 # ---------------------------
 # 1. 读取 CSV 并预处理数据
 # ---------------------------
 
-df = pd.read_csv("meetings.csv")  # 确保CSV文件已生成
+df = pd.read_csv("./Mock_Meetings_Data.csv")  # 确保CSV文件已生成
 
 # 停用词 & 词形归一化
 stop_words = set(stopwords.words('english'))
@@ -71,17 +72,23 @@ def retrieve_documents(query, top_k=5, alpha=0.6, beta=0.4):
     query_embedding = embedding_model.encode([query_text], convert_to_numpy=True)
     faiss_scores, faiss_indices = faiss_index.search(query_embedding, top_k)
     faiss_scores = faiss_scores.flatten()
+    faiss_indices = faiss_indices.flatten()  # 获取对应的文档索引
     
-    # **(4) 归一化 BM25 & FAISS 结果**
-    bm25_scores = (bm25_scores - bm25_scores.min()) / (bm25_scores.max() - bm25_scores.min() + 1e-9)
+    # **(4) 取出 BM25 的 Top-K 评分**
+    bm25_top_k_scores = bm25_scores[faiss_indices]  # 仅保留 FAISS 选出的 Top-K 文档的 BM25 评分
+    
+    # **(5) 归一化 BM25 & FAISS 结果**
+    bm25_top_k_scores = (bm25_top_k_scores - bm25_top_k_scores.min()) / (bm25_top_k_scores.max() - bm25_top_k_scores.min() + 1e-9)
     faiss_scores = (faiss_scores - faiss_scores.min()) / (faiss_scores.max() - faiss_scores.min() + 1e-9)
     
-    # **(5) 综合排名**
-    final_scores = alpha * bm25_scores + beta * faiss_scores
-    top_indices = np.argsort(final_scores)[::-1][:top_k]
+    # **(6) 综合排名**
+    final_scores = alpha * bm25_top_k_scores + beta * faiss_scores
+    sorted_indices = np.argsort(final_scores)[::-1]  # 按分数排序
     
-    # **(6) 返回查询结果**
+    # **(7) 返回查询结果**
+    top_indices = faiss_indices[sorted_indices]  # 重新映射回原文档索引
     results = df.iloc[top_indices][["id", "title", "agenda", "text"]].to_dict(orient="records")
+    
     return results
 
 # ---------------------------
