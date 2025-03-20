@@ -1,1 +1,1 @@
-{"id":id, "title": title, "S/PV": S/PV, "Year": Year, "Meeting_Number": Meeting_Number, "Day_Date_Time": Day_Date_Time, "President": President, "Members": Members, "Agenda": Agenda, "text": text}
+{"id":id, "title": title, "type": type, "S/PV": S/PV, "Year": Year, "Meeting_Number": Meeting_Number, "Day_Date_Time": Day_Date_Time, "President": President, "Members": Members, "Agenda": Agenda, "text": text}
