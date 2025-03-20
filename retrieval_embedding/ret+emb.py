@@ -20,20 +20,36 @@ nltk.download('wordnet')
 # 1. 读取 CSV 并预处理数据
 # ---------------------------
 
-df = pd.read_csv("./dummy_datasets.csv")  # 确保CSV文件已生成
+df = pd.read_csv("./dummy_datasets.csv", encoding="utf-8", encoding_errors="ignore")
 
 # 停用词 & 词形归一化
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 
 def preprocess_text(text):
+    if pd.isna(text):  # 处理 NaN
+        return ""
     tokens = word_tokenize(text.lower())  # 统一小写 & 分词
     tokens = [word for word in tokens if word.isalnum()]  # 去掉非字母字符
     tokens = [word for word in tokens if word not in stop_words]  # 去停用词
     tokens = [lemmatizer.lemmatize(word) for word in tokens]  # 词形还原
     return " ".join(tokens)
 
-df["processed_text"] = df["text"].fillna("").apply(preprocess_text)
+# **(1) 处理 Cover 部分**
+df_cover = df[df["type"] == 0].copy()
+df_cover["cover_text"] = df_cover.apply(lambda row: f"{row['s/pv']} {row['year']} {row['meeting_number']} {row['day_date_time']} {row['president']} {row['members']} {row['agenda']}", axis=1)
+df_cover = df_cover[["id", "title", "cover_text", "agenda"]]  # 这里保留 `id` 和 `agenda`
+
+# **(2) 处理正文**
+df_text = df[df["type"] > 0][["title", "text"]].copy()
+df_text = df_text.groupby("title")["text"].apply(lambda x: " ".join(x.dropna())).reset_index()
+
+# **(3) 合并 Cover 和正文**
+df_merged = df_cover.merge(df_text, on="title", how="left").fillna("")
+df_merged["full_text"] = df_merged["cover_text"] + " " + df_merged["text"]
+df_merged["processed_text"] = df_merged["full_text"].apply(preprocess_text)
+
+df = df_merged  # 更新 df，确保 `id` 和 `agenda` 在 df 里
 
 # ---------------------------
 # 2. 构建索引（BM25 + FAISS）
@@ -89,7 +105,8 @@ def retrieve_documents(query, top_k=5, alpha=0.6, beta=0.4):
     top_indices = faiss_indices[sorted_indices]  # 重新映射回原文档索引
     results = df.iloc[top_indices][["id", "title", "agenda", "text"]].to_dict(orient="records")
 
-    return results
+    # **(8) 仅返回 title 列表**
+    return [entry["title"] for entry in results]
 
 # ---------------------------
 # 4. 查询示例
