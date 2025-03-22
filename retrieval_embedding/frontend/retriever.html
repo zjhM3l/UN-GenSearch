@@ -71,12 +71,26 @@
       cursor: pointer;
     }
 
-    .chat-input button:hover {
+    .chat-input button:disabled {
+      background: #a0a0a0;
+      cursor: not-allowed;
+    }
+
+    .chat-input button:hover:enabled {
       background: #0b5ed7;
+    }
+
+    progress {
+      height: 8px;
+      width: 100%;
+      margin: 0;
     }
   </style>
 </head>
 <body>
+
+<!-- ✅ Add progress bar before chat container -->
+<progress id="progress-bar" max="5" value="0" style="display: none;"></progress>
 
 <div class="chat-container">
   <div class="chat-messages" id="chat-box"></div>
@@ -140,14 +154,30 @@
   }
 
   async function pollBackendLogs() {
+    const progressBar = document.getElementById("progress-bar");
+    const sendBtn = document.querySelector(".chat-input button");
+
+    sendBtn.disabled = true;
+    progressBar.style.display = "block";
+
     while (!isFirstSetupDone) {
       try {
         const res = await fetch("/status");
         const data = await res.json();
         (data.logs || []).forEach(log => appendMessage(log, false));
 
-        if ((data.logs || []).some(msg => msg.includes("✅ Indexing complete") || msg.includes("✅ Cached indexes"))) {
+        if (data.progress !== undefined) {
+          progressBar.value = data.progress;
+        }
+
+        if (
+          data.progress >= 5 ||
+          (data.logs || []).some(msg => msg.includes("✅ Indexing complete") || msg.includes("✅ Cached indexes"))
+        ) {
           isFirstSetupDone = true;
+          sendBtn.disabled = false;
+          progressBar.style.display = "none";
+          appendMessage("✅ System is ready! You can start searching.");
         }
       } catch (e) {
         appendMessage("⚠️ Failed to fetch backend logs.", false);
