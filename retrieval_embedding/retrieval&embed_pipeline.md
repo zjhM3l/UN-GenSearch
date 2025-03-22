@@ -248,3 +248,112 @@ embeddings = np.load("cached_embeddings.npy")
 ### ❗注意
 你本地已经可以正常加载大型数据集，只是时间过长。如果你想**立刻使用缓存机制**，请按照这个改造策略来优化你的后端代码结构。我可以帮你一键改好整个 `ret_emp.py` + `app.py` 结构并加上缓存判断逻辑，你需要我现在来改造吗？
 
+
+你观察得非常准确，目前这份后端代码的核心流程大致是 **正确** 的，但也确实存在两个值得重点讨论的问题：
+
+---
+
+## ✅ 问题 1：**拼接逻辑是否正确？**
+
+你的 `DEBUG SAMPLE` 和 `CSV 原始记录` 之间是 **匹配且合理的**，说明：
+
+- `type == 0` 的元信息（cover）被提取并合成了 `cover_text`；
+- `type > 0` 的文本段落被正确拼接成了 `text`；
+- `full_text = cover_text + text` 正确构成文档的完整语料；
+- `processed_text` 是 `full_text` 的预处理版本，结构也没问题；
+- `nan` 是来自于 `s/pv` 和 `year` 字段缺失导致的，你也做了 `.fillna("")`，问题不大。
+
+✅ **结论：拼接逻辑是对的，数据结构上没问题。**
+
+---
+
+## ⚠️ 问题 2：**预处理是否被一致应用？**
+
+你说得对，**`preprocess_text()` 被用于查询语句（query）预处理没问题，但核心疑问是：是否被用于文档（corpus）本身？**
+
+答案是：✔️**是的，被使用了。**
+
+具体这句就是：
+```python
+df_merged["processed_text"] = df_merged["full_text"].apply(preprocess_text)
+```
+
+紧接着这句：
+```python
+tfidf_matrix = tfidf_vectorizer.fit_transform(df["processed_text"])
+```
+
+以及：
+```python
+embeddings = embedding_model.encode(df["processed_text"], ...)
+```
+
+也就是说：**不论是稀疏向量还是语义向量，我们都用的是 `processed_text`，而这个字段确实是通过 `preprocess_text()` 得到的**。所以，这一块没问题。
+
+---
+
+## 🧠 但为什么效果依然不理想？
+
+这是你反馈的重点，我认为下面这些地方可能导致 **召回质量差**：
+
+### ❶ 文本语料太长  
+即使做了 lemmatize + stopword + lower，`full_text` 依然非常长（可能几千词）。这在 TF-IDF 中会导致稀疏稀释（signal dilution），而在 embedding 中则可能超过 token 限制导致截断（MiniLM 通常截断 512 tokens）。
+
+✅ **解决建议：**
+- 可以将 `full_text` 拆成若干 `chunks`，对每个 chunk 编码，再在 `retrieve()` 时取 chunk 最大得分；
+- 或者把 `text` 截断长度，比如只用前 `1000` 词（更轻量）；
+- 或者把 `cover_text` 和 `text` 分别嵌入，score 融合。
+
+---
+
+### ❷ embedding 模型能力有限  
+`all-MiniLM-L6-v2` 是一个轻量模型（100MB），虽然速度快、适合 CPU，但效果上确实不能和大型模型（如 `bge-large`, `E5`, `DeepSeek R1 Embedding`, `GTE-Large`）相比。
+
+✅ **解决建议：**
+- 使用 `bge-base-en`, `e5-base`, 或 `DeepSeek Embedding`（你提到过）；
+- 或者至少换成 `all-mpnet-base-v2`，效果比 `MiniLM` 稍好；
+- 本地部署时考虑量化（int8, fp16）或 `sentence_transformers.quantization` 降低成本。
+
+---
+
+### ❸ hybrid score 融合比例不合适  
+当前是 `α = 0.6`，`β = 0.4`，但如果某种方式的 score 本身较弱或嘈杂（比如 MiniLM embedding），可能会拉低最终得分。
+
+✅ **解决建议：**
+- 尝试不同权重组合：如 `(0.7, 0.3)`、`(0.8, 0.2)` 或 `(1.0, 0.0)`；
+- 或者使用 max-pooling 策略：`score = max(bm25, embedding)`；
+
+---
+
+### ✅ 总结：
+
+| 项目 | 状态 | 建议 |
+|------|------|------|
+| CSV 拼接 | ✅ 正确 | 无需修改 |
+| 文档预处理 | ✅ 已使用 preprocess_text | 无需修改 |
+| 文本过长 | ⚠️ 可能导致效果稀释 | 限长或分块编码 |
+| 模型弱 | ⚠️ MiniLM 模型过轻 | 换更强 embedding |
+| 融合权重 | ⚠️ 混合得分不稳 | 调整 α, β 比例 |
+
+---
+
+### 🚀 下一步建议你做这些测试：
+1. 临时修改：
+   ```python
+   df_merged["full_text"] = df_merged["cover_text"] + " " + df_merged["text"]
+   df_merged["full_text"] = df_merged["full_text"].str[:1000]  # 限长1000字符
+   ```
+2. 修改 embedding 模型为：
+   ```python
+   EMBEDDING_MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
+   ```
+3. 在 `retrieve_documents()` 中临时设：
+   ```python
+   alpha = 1.0
+   beta = 0.0
+   ```
+
+看看是不是 BM25 反而更靠谱。我们可以逐步定位到底是哪个模块表现不佳。
+
+需要我直接改好这几块给你一个测试版本吗？
+
