@@ -187,3 +187,64 @@ Final Top-k: [doc_12, doc_72, doc_45]
     "participants": "UK, France, Germany"
   }
 ]
+
+
+你的项目当前的问题（每次运行都对大型 CSV 文件进行重复处理）是可以通过**缓存机制**解决的。下面是完整的解决方案说明：
+
+---
+
+### ✅ **你需要的优化目标：**
+- 第一次运行时：
+  - 对 CSV 文件进行清洗、处理（预处理 + embedding + TF-IDF 等）。
+  - 将处理结果（`df`, `tfidf_matrix`, `embeddings`）保存为本地缓存文件。
+- 后续运行时：
+  - 直接加载缓存文件，无需重新处理庞大的 CSV。
+
+---
+
+### 🧠 **建议的缓存结构**
+
+| 缓存内容         | 文件名                | 类型              |
+|------------------|-----------------------|-------------------|
+| 处理后的 DataFrame | `cached_df.pkl`        | `pandas.DataFrame` |
+| TF-IDF 矩阵       | `cached_tfidf.pkl`     | `scipy.sparse`     |
+| Embeddings 向量   | `cached_embeddings.npy`| `np.ndarray`       |
+
+---
+
+### ⚙️ **解决方案代码结构**
+
+你需要将 `ret_emp.py` 拆分为两部分逻辑：
+
+#### 1. 缓存生成器（仅首次处理）：
+```python
+import os
+import pickle
+import numpy as np
+
+# 如果不存在缓存，就构建并保存
+if not os.path.exists("cached_df.pkl"):
+    # ... 读取CSV、预处理、生成 df
+    df.to_pickle("cached_df.pkl")
+
+if not os.path.exists("cached_tfidf.pkl"):
+    with open("cached_tfidf.pkl", "wb") as f:
+        pickle.dump(tfidf_matrix, f)
+
+if not os.path.exists("cached_embeddings.npy"):
+    np.save("cached_embeddings.npy", embeddings)
+```
+
+#### 2. 加载缓存（主运行逻辑）：
+```python
+df = pd.read_pickle("cached_df.pkl")
+with open("cached_tfidf.pkl", "rb") as f:
+    tfidf_matrix = pickle.load(f)
+embeddings = np.load("cached_embeddings.npy")
+```
+
+---
+
+### ❗注意
+你本地已经可以正常加载大型数据集，只是时间过长。如果你想**立刻使用缓存机制**，请按照这个改造策略来优化你的后端代码结构。我可以帮你一键改好整个 `ret_emp.py` + `app.py` 结构并加上缓存判断逻辑，你需要我现在来改造吗？
+

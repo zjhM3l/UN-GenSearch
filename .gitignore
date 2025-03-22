@@ -4,3 +4,5 @@
 debug_meeting_record_*.html
 *__pycache__
 .idea/*
+datasets.csv
+cache

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Retriever Chat Interface</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 800px;
+      margin: auto;
+      border: 1px solid #ddd;
+      background: #fff;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message {
+      max-width: 75%;
+      margin: 8px 0;
+      padding: 10px 14px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+
+    .user-message {
+      align-self: flex-end;
+      background-color: #d1e7dd;
+      color: #0f5132;
+    }
+
+    .bot-message {
+      align-self: flex-start;
+      background-color: #f8d7da;
+      color: #842029;
+    }
+
+    .chat-input {
+      display: flex;
+      border-top: 1px solid #ccc;
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      font-size: 16px;
+    }
+
+    .chat-input button {
+      padding: 12px 20px;
+      background: #0d6efd;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    .chat-input button:hover {
+      background: #0b5ed7;
+    }
+  </style>
+</head>
+<body>
+
+<div class="chat-container">
+  <div class="chat-messages" id="chat-box"></div>
+  <div class="chat-input">
+    <input type="text" id="user-input" placeholder="Enter your query..." />
+    <button onclick="sendQuery()">Send</button>
+  </div>
+</div>
+
+<script>
+  let isFirstSetupDone = false;
+
+  function appendMessage(content, isUser = false) {
+    const message = document.createElement("div");
+    message.className = `message ${isUser ? "user-message" : "bot-message"}`;
+    message.textContent = content;
+    document.getElementById("chat-box").appendChild(message);
+    message.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function sendQuery() {
+    const input = document.getElementById("user-input");
+    const query = input.value.trim();
+    if (!query) return;
+
+    appendMessage(query, true);
+    input.value = "";
+
+    appendMessage("🧠 Preprocessing your query...");
+    await delay(500);
+    appendMessage("🔍 Retrieving from corpus using FAISS + BM25...");
+    await delay(1000);
+    appendMessage("📊 Scoring and ranking results...");
+    await delay(800);
+
+    try {
+      const response = await fetch("/retrieve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query: query })
+      });
+
+      const data = await response.json();
+      const titles = data.titles || [];
+
+      if (titles.length === 0) {
+        appendMessage("❌ No relevant documents found.");
+      } else {
+        appendMessage("✅ Top-5 Retrieved Titles:\n\n" + titles.map((t, i) => `${i + 1}. ${t}`).join("\n"));
+      }
+    } catch (err) {
+      appendMessage("❌ Error retrieving documents. Please try again.");
+      console.error(err);
+    }
+  }
+
+  function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function pollBackendLogs() {
+    while (!isFirstSetupDone) {
+      try {
+        const res = await fetch("/status");
+        const data = await res.json();
+        (data.logs || []).forEach(log => appendMessage(log, false));
+
+        if ((data.logs || []).some(msg => msg.includes("✅ Indexing complete") || msg.includes("✅ Cached indexes"))) {
+          isFirstSetupDone = true;
+        }
+      } catch (e) {
+        appendMessage("⚠️ Failed to fetch backend logs.", false);
+      }
+
+      await delay(1000);
+    }
+  }
+
+  window.onload = function () {
+    pollBackendLogs();
+  };
+</script>
+
+</body>
+</html>
