@@ -13,6 +13,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
 import re
+from time import time
 
 # Logging queue for frontend
 log_queue = Queue()
@@ -36,6 +37,7 @@ def get_log_updates():
 # NLTK setup
 nltk.download('stopwords')
 nltk.download('punkt_tab')
+# nltk.download('punkt')
 nltk.download('wordnet')
 
 # Cache setup
@@ -46,9 +48,13 @@ DF_PATH = os.path.join(CACHE_DIR, "df.pkl")
 TFIDF_PATH = os.path.join(CACHE_DIR, "tfidf_vectorizer.pkl")
 TFIDF_MATRIX_PATH = os.path.join(CACHE_DIR, "tfidf_matrix.pkl")
 FAISS_INDEX_PATH = os.path.join(CACHE_DIR, "faiss.index")
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+QUERY_PROMPT_NAME = "s2p_query"
+BATCH_SIZE = 1
+# EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = "dunzhang/stella_en_1.5B_v5"
+# embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, trust_remote_code=True).cuda()
 
-embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 
@@ -110,8 +116,30 @@ def build_index():
                 joblib.dump(tfidf_matrix, TFIDF_MATRIX_PATH)
 
                 log("📦 Step 4/5: Encoding with embedding model...")
-                progress_state["step"] = 4
-                embeddings = embedding_model.encode(df["processed_text"], convert_to_numpy=True, show_progress_bar=True)
+                # progress_state["step"] = 4
+                # # embeddings = embedding_model.encode(df["processed_text"], convert_to_numpy=True, show_progress_bar=True)
+                # embeddings = embedding_model.encode(df["processed_text"].tolist(), prompt_name=QUERY_PROMPT_NAME,
+                #                                     convert_to_numpy=True)
+                #
+                # embeddings = normalize(embeddings, norm='l2', axis=1)
+
+                texts = df["processed_text"].tolist()
+                total = len(texts)
+                print("total: ", total)
+                start_time = time()
+
+                all_embeddings = []
+
+                for i in range(0, total, BATCH_SIZE):
+                    batch = texts[i:i + BATCH_SIZE]
+                    batch_embeddings = embedding_model.encode(batch, prompt_name=QUERY_PROMPT_NAME,
+                                                              convert_to_numpy=True)
+                    all_embeddings.append(batch_embeddings)
+
+                    elapsed = time() - start_time
+                    log(f"🔹 Encoded {min(i + BATCH_SIZE, total)}/{total} texts in {elapsed:.1f}s")
+
+                embeddings = np.vstack(all_embeddings)
                 embeddings = normalize(embeddings, norm='l2', axis=1)
 
                 log("🚀 Step 5/5: Building FAISS index...")
@@ -140,17 +168,28 @@ def retrieve_documents(query, top_k=5, alpha=0.6, beta=0.4):
     query_tfidf = tfidf_vectorizer.transform([query_text])
     bm25_scores = np.dot(tfidf_matrix, query_tfidf.T).toarray().flatten()
 
-    query_embedding = embedding_model.encode([query_text], convert_to_numpy=True)
+    query_embedding = embedding_model.encode([query_text], prompt_name=QUERY_PROMPT_NAME, convert_to_numpy=True)
     faiss_scores, faiss_indices = faiss_index.search(query_embedding, top_k)
     faiss_scores = faiss_scores.flatten()
     faiss_indices = faiss_indices.flatten()
 
     bm25_top_k_scores = bm25_scores[faiss_indices]
-    bm25_top_k_scores = (bm25_top_k_scores - bm25_top_k_scores.min()) / (bm25_top_k_scores.max() - bm25_top_k_scores.min() + 1e-9)
+    bm25_top_k_scores = (bm25_top_k_scores - bm25_top_k_scores.min()) / (
+                bm25_top_k_scores.max() - bm25_top_k_scores.min() + 1e-9)
     faiss_scores = (faiss_scores - faiss_scores.min()) / (faiss_scores.max() - faiss_scores.min() + 1e-9)
 
     final_scores = alpha * bm25_top_k_scores + beta * faiss_scores
     sorted_indices = np.argsort(final_scores)[::-1]
     top_indices = faiss_indices[sorted_indices]
     results = df.iloc[top_indices][["id", "title", "agenda", "text"]].to_dict(orient="records")
+
+    output_str = ""
+    for entry in results:
+        output_str += f"Document: {entry['title']}\n\n{entry['text']}\n\n"
+
+    print(output_str)
+    with open("output.txt", "w", encoding="utf-8") as f:
+        f.write(output_str)
+
     return [entry["title"] for entry in results]
+
