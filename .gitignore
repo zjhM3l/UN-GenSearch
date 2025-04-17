@@ -6,3 +6,6 @@ debug_meeting_record_*.html
 .idea/*
 datasets.csv
 cache
+**/.env
+**/cache_old
+**/cache_new
