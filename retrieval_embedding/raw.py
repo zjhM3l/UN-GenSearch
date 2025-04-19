@@ -63,7 +63,7 @@ def get_original_response(user_question):
 # 使用示例
 if __name__ == "__main__":
     # 示例问题
-    test_question = "What was the outcome of UN vote on nuclear disarmament?"
+    test_question = "How are private military contractors regulated under UN mercenary conventions?"
 
     # 获取并保存原始版本响应
     original_response = get_original_response(test_question)

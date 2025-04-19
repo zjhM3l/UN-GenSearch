@@ -77,7 +77,7 @@ def answer():
     prompt = (
         f"Below are the documents relevant to your question: \"{query}\".\n\n"
         f"{context_str}\n\n"
-        f"Based on the above documents, please provide a clear and concise answer to: {query}"
+        f"Based on the above documents and your own knowledge/databases, please provide a clear and concise answer to: {query}"
     )
 
     # Call Deepseek API
